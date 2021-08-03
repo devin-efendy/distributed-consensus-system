@@ -197,8 +197,8 @@ def cmd_flood_reply(udp_socket, message, addr):
         # Check if the address is not yourself (malicious messages from other peers, yes I have trust issues)
         # Check if you REALLY never see this peer at all
         if (NODE_ADDR != (host_, port_) and
-                not any((host_, port_) == (
-                    peer['host'], peer['port']) for peer in peers)
+            not any((host_, port_) == (
+                        peer['host'], peer['port']) for peer in peers)
             ):
             peers.append(peer)
             print(peers)
@@ -295,9 +295,11 @@ def cli_set(message):
 
 
 def cli_exit(client_conneciton):
+    client_conneciton.sendall(
+        ("Server has closed the connection...\r\n").encode('utf-8'))
     client_conneciton.close()
     print("[NODE] Closing CLI connection...")
-    return "Server has closed the connection..."
+    return None
 
 
 handle_commands = dict()
@@ -338,8 +340,8 @@ zeroconf.register_service(info)
 inputs = [udp_socket, tcp_socket]
 outputs = []  # None
 
-join_network(udp_socket)
-cmd_query(udp_socket, '', ())
+# join_network(udp_socket)
+# cmd_query(udp_socket, '', ())
 
 last_flood_msg = time.time()
 
@@ -348,6 +350,7 @@ try:
         # Need to calculate the timeout in someway...
         # This requirement is pretty BS...
         timeout_sec = 60 - (time.time() - last_flood_msg)
+        timeout_sec = 0 if timeout_sec < 0 else timeout_sec
 
         readable, writable, exceptional = select.select(
             inputs, outputs, inputs, timeout_sec)
@@ -366,23 +369,25 @@ try:
                 try:
                     res_msg = json.loads(data)
 
-                    command = res_msg['command']
+                    # command = res_msg['command']
 
-                    if command and command in handle_commands:
-                        cmd_func = handle_commands[command]
-                        cmd_func(udp_socket, res_msg, addr)
+                    # if command and command in handle_commands:
+                    #     cmd_func = handle_commands[command]
+                    #     cmd_func(udp_socket, res_msg, addr)
 
-                    if command == 'FLOOD' or command == 'FLOOD-REPLY':
-                        print("Sender: ", addr)
+                    # if command == 'FLOOD' or command == 'FLOOD-REPLY':
+                    #     print("Sender: ", addr)
 
                 except:
                     pass
 
             elif source is tcp_socket:
-                client_connection, client_addr = tcp_socket.accept()
-                tcp_socket.setblocking(False)
-
-                message = client_connection.recv(1024).decode('utf-8')
+                client_connection, client_addr = source.accept()
+                source.setblocking(False)
+                inputs.append(client_connection)
+            else:
+                # This is client connection
+                message = source.recv(1024).decode('utf-8')
                 msg_argv = message.strip().split(' ')
 
                 cli_response = ''
@@ -392,15 +397,15 @@ try:
 
                     if cli_command and cli_command in handle_cli_commands:
                         cli_func = handle_cli_commands.get(cli_command)
-                        cli_response = cli_func(msg_argv)
 
-                print(cli_response)
-                client_connection.sendall(
-                    (str(cli_response)+"\r\n").encode('utf-8'))
-                client_connection.close()
-            else:
-                
-                # inputs.remove(source)
+                        if cli_command == 'exit':
+                            cli_response = cli_func(source)
+                            inputs.remove(source)
+                        else:
+                            cli_response = cli_func(msg_argv)
+                            source.sendall(
+                                (str(cli_response)+"\r\n").encode('utf-8'))
+                # print(cli_response)
                 pass
 
 except KeyboardInterrupt:
