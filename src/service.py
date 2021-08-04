@@ -41,6 +41,8 @@ CLI_TRUTH_ = 'truth'
 CLI_SET_ = 'set'
 CLI_EXIT_ = 'exit'
 
+tell_truth = True
+
 # ================== UDP Socket for A3 peer-to-peer network ==================
 udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 udp_socket.setblocking(False)
@@ -197,9 +199,9 @@ def cmd_flood_reply(udp_socket, message, addr):
         # Check if the address is not yourself (malicious messages from other peers, yes I have trust issues)
         # Check if you REALLY never see this peer at all
         if (NODE_ADDR != (host_, port_) and
-            not any((host_, port_) == (
-                        peer['host'], peer['port']) for peer in peers)
-            ):
+                not any((host_, port_) == (
+                    peer['host'], peer['port']) for peer in peers)
+                ):
             peers.append(peer)
             print(peers)
     pass
@@ -222,19 +224,31 @@ def cmd_query(udp_socket, message, addr):
         "command": CMD_QUERY_
     }
     query_message = json.dumps(query_message).encode('utf-8')
-    udp_socket.sendto(query_message, A3_ADDR)
+    udp_socket.sendto(query_message, addr)
+    pass
+
+
+def cmd_handle_query(udp_socket, message, addr):
+    print(message)
+    query_message = {
+        "command": CMD_QUERY_REPLY_,
+        "database": words_db
+    }
+    query_message = json.dumps(query_message).encode('utf-8')
+    udp_socket.sendto(query_message, addr)
     pass
 
 
 def cmd_query_reply(udp_socket, message, addr):
+    global words_db
 
     result = res_msg['database']
 
     if result:
         words_db = result
         # print(words_db)
-        print("===== QUERY-REPLY =====")
-        print(words_db)
+        # print("===== QUERY-REPLY =====")
+        # print(words_db)
     pass
 
 
@@ -265,9 +279,7 @@ def cli_peers(message):
 
 
 def cli_current(message):
-    print(message)
-
-    return "[NODE_REPLY] current"
+    return str(words_db)
 
 
 def cli_consensus(message):
@@ -277,21 +289,30 @@ def cli_consensus(message):
 
 
 def cli_lie(message):
-    print(message)
-
-    return "[NODE_REPLY] lie"
+    global tell_truth
+    tell_truth = False
+    return "Start lying..."
 
 
 def cli_truth(message):
-    print(message)
-
-    return "[NODE_REPLY] truth"
+    global tell_truth
+    tell_truth = True
+    return "Stop lying. Telling the truth..."
 
 
 def cli_set(message):
-    print(message)
+    global words_db
 
-    return "[NODE_REPLY] set"
+    if(len(message) != 3):
+        return 'SET usage: set <index> <word>'
+
+    if int(message[1]) < 0 or int(message[1]) > 4:
+        return 'Invalid index for set command'
+
+    words_db[int(message[1])] = message[2]
+
+    # TODO send SET protocol to all known peers
+    return "Done. Set index {} to {}".format(message[1], message[2])
 
 
 def cli_exit(client_conneciton):
@@ -307,7 +328,7 @@ handle_commands[CMD_FLOOD_] = cmd_flood
 handle_commands[CMD_FLOOD_REPLY_] = cmd_flood_reply
 handle_commands[CMD_CONSENSUS_] = cmd_consensus
 handle_commands[CMD_CONSENSUS_REPLY_] = cmd_consensus_reply
-handle_commands[CMD_QUERY_] = cmd_query
+handle_commands[CMD_QUERY_] = cmd_handle_query
 handle_commands[CMD_QUERY_REPLY_] = cmd_query_reply
 handle_commands[CMD_SET_] = cmd_set
 
@@ -340,8 +361,8 @@ zeroconf.register_service(info)
 inputs = [udp_socket, tcp_socket]
 outputs = []  # None
 
-# join_network(udp_socket)
-# cmd_query(udp_socket, '', ())
+join_network(udp_socket)
+cmd_query(udp_socket, '', A3_ADDR)
 
 last_flood_msg = time.time()
 
@@ -384,6 +405,7 @@ try:
             elif source is tcp_socket:
                 client_connection, client_addr = source.accept()
                 source.setblocking(False)
+                # Add the client socket to the inputs for multiplexing
                 inputs.append(client_connection)
             else:
                 # This is client connection
@@ -399,12 +421,18 @@ try:
                         cli_func = handle_cli_commands.get(cli_command)
 
                         if cli_command == 'exit':
+                            # close client connection and remove from the inputs
                             cli_response = cli_func(source)
                             inputs.remove(source)
                         else:
                             cli_response = cli_func(msg_argv)
                             source.sendall(
                                 (str(cli_response)+"\r\n").encode('utf-8'))
+                    else:
+                        print('[DEBUG] - Before sendall')
+                        source.sendall(
+                            ("Command not recognized\r\n").encode('utf-8'))
+
                 # print(cli_response)
                 pass
 
