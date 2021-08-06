@@ -30,10 +30,10 @@ peers = [peer1, peer2]
 
 exst_peer = [peer for peer in peers if '1.1.1.2' ==
              peer['host'] and 8000 == peer['port']]
-
+print(exst_peer)
 exst_peer = exst_peer.pop()
 exst_peer['name'] = "yada yada yada"
-print(peers)
+print(exst_peer)
 
 # print(peer1)
 # print(json.dumps(peers).encode('utf-8'))
