@@ -81,6 +81,8 @@ print("[UDP] Listening on interface " + udp_hostname +
       " port " + str(external_port) + " aka " + ip_addr)
 
 NODE_HOST = socket.gethostbyname(socket.gethostname())
+if len(sys.argv) == 2:
+    NODE_HOST = '127.0.0.1'
 NODE_PORT = external_port
 NODE_ADDR = (NODE_HOST, NODE_PORT)
 
@@ -104,6 +106,7 @@ peers = []
 message_queue = []
 flood_messages = []
 words_db = [''] * 5
+event_global_timeout = sys.maxsize
 
 
 def is_node_inactive(node):
@@ -180,13 +183,13 @@ def cmd_flood(udp_socket, message, addr):
 
     last_active = time.time()
 
-    print(message)
+    # print(message)
 
     # check if this is a new peer or not
     # if not then set the last active
     if not any([peer['host'] == msg_host and peer['port'] == msg_port
                 for peer in peers]):
-        print("[DEBUG] ===== FLOOD: NEW PEER =====")
+        # print("[DEBUG] ===== FLOOD: NEW PEER =====")
         new_peer = {
             'name': msg_name,
             'host': msg_host,
@@ -254,9 +257,9 @@ def cmd_flood_reply(udp_socket, message, addr):
         # Check if the address is not yourself (malicious messages from other peers, yes I have trust issues)
         # Check if you REALLY never see this peer at all
         if (NODE_ADDR != (host_, port_) and
-                not any((host_, port_) == (
-                    peer['host'], peer['port']) for peer in peers)
-            ):
+                    not any((host_, port_) == (
+                        peer['host'], peer['port']) for peer in peers)
+                ):
             print("[DEBUG] ===== FLOOD-REPLY: NEW PEER =====")
             peers.append(peer)
             # print(peers)
@@ -277,8 +280,16 @@ def cmd_consensus(udp_socket, message, addr):
     _message_id = message['messageID']
     _due = message['due']
 
-    if not (_om and _index and _value and _peers and _message_id and _due):
-        # ignore the consensus command
+    # Input ERROR check
+
+    # Make sure OM and Index are integer
+    if not isinstance(_om, int) and not isinstance(_index, int):
+        return None
+    # Make sure index not out of bound
+    if _index < 0 or _index > 4:
+        return None
+    # Make sure the due date is bigger than the current time
+    if _due < time.time():
         return None
 
     if _DEBUG == 1:
@@ -303,6 +314,8 @@ def cmd_consensus(udp_socket, message, addr):
         udp_socket.sendto(consensus_reply, addr)
         return None
 
+    print(message)
+
     if _om == 0:
         print("[DEBUG] ========== OM: 0 ==========")
         print(message, addr)
@@ -314,16 +327,20 @@ def cmd_consensus(udp_socket, message, addr):
         consensus_reply = json.dumps(consensus_reply).encode('utf-8')
         udp_socket.sendto(consensus_reply, addr)
     elif _om > 0:
-        print("[DEBUG] ========== OM > 0 ==========")
-        print(message, addr)
-        print("DUE in secs: {}".format(_due - time.time()))
 
         sub_consensus_id = str(uuid.uuid4())
-        sub_consensus_due = _due/CONSENSUS_TIMEOUT_DUE
+        due_in_sec = _due - time.time()
+        sub_consensus_due = _due - due_in_sec/CONSENSUS_TIMEOUT_DUE
+
+        print("[DEBUG] ========== OM > 0 ========== {}".format(addr))
+        print(message)
+        # print("DUE time: {}".format(_due))
+        # print("DUE in secs: {}".format(due_in_sec))
+        # print("SUB-DUE in secs: {}".format(sub_consensus_due))
 
         sub_consensus_msg = {
             "command": CMD_CONSENSUS_,
-            "om": _om - 1,
+            "OM": _om - 1,
             "index": _index,
             "value": _value,
             "peers": _peers,
@@ -332,6 +349,11 @@ def cmd_consensus(udp_socket, message, addr):
         }
 
         sub_consensus_msg = json.dumps(sub_consensus_msg).encode('utf-8')
+
+        parsed_peers = parse_peers_addr(_peers)
+
+        expected_res = len(
+            [p != NODE_ADDR and p != addr for p in parsed_peers])
 
         consensus_event = {
             "event": EVENT_SUB_CONSENSUS,
@@ -342,7 +364,7 @@ def cmd_consensus(udp_socket, message, addr):
             "reply_addr": addr,
             "due": sub_consensus_due,
             "response": dict(),  # value returned from each peer
-            "expected_responses": len(_peers) - 2
+            "expected_responses": expected_res
         }
 
         message_queue.append(consensus_event)
@@ -350,10 +372,10 @@ def cmd_consensus(udp_socket, message, addr):
         # send the message to n-2 peers, everyone except the sender and yourself
         for peer_addr in parse_peers_addr(_peers):
             if peer_addr != NODE_ADDR and peer_addr != addr:
-                print(
-                    "[DEBUG - CMD] ========== sending SUB-CONSENSUS to: {} =====".format(peer_addr))
+                # print("[DEBUG - CMD] ========== sending SUB-CONSENSUS to: {} =====".format(peer_addr))
                 udp_socket.sendto(sub_consensus_msg, peer_addr)
 
+        # print("[CONSENSUS] MessageQueue: {}".format(message_queue))
     pass
 
 
@@ -361,14 +383,17 @@ def cmd_consensus_reply(udp_socket, message, addr):
     global peers
     global message_queue
 
-    _value = str(message['value'])
-    _message_id = message['reply-to']
-
-    if not (_value and _message_id):
+    if not 'value' in message and not 'reply-to' in message:
         # ignore the consensus command
         return None
 
+    _value = message['value']
+    _message_id = message['reply-to']
+
     consensus = [m for m in message_queue if m['messageID'] == _message_id]
+
+    # print("[DEBUG] - CONSENSUS-REPLY {}".format(addr))
+    # print(consensus)
 
     if not any(consensus):
         return None
@@ -383,8 +408,6 @@ def cmd_consensus_reply(udp_socket, message, addr):
 
     consensus['expected_responses'] = consensus['expected_responses'] - 1
 
-    print("[DEBUG] - CONSENSUS-REPLY")
-    print(consensus, addr)
     pass
 
 
@@ -400,7 +423,7 @@ def cmd_query(udp_socket, message, addr):
 
 
 def cmd_handle_query(udp_socket, message, addr):
-    print(message)
+    # print(message)
     global words_db
     query_message = {
         "command": CMD_QUERY_REPLY_,
@@ -435,7 +458,6 @@ def cmd_set(udp_socket, message, addr):
     if index < 0 and index >= 5:
         return None
 
-    print(message, addr)
     words_db[index] = value
 
     for peer in peers:
@@ -503,7 +525,7 @@ def cli_consensus(message):
 
     consensus_message = {
         "command": CMD_CONSENSUS_REPLY_,
-        "om": om_level,
+        "OM": om_level,
         "index": index,
         "value": words_db[index],
         "peers": peer_list,
@@ -530,8 +552,7 @@ def cli_consensus(message):
 
     for peer_addr in parse_peers_addr(peer_list):
         if peer_addr != NODE_ADDR:
-            print(
-                "[DEBUG - CLI] ========== sending SUB-CONSENSUS to: {} =====".format(peer_addr))
+            # print("[DEBUG - CLI] ========== sending SUB-CONSENSUS to: {} =====".format(peer_addr))
             udp_socket.sendto(consensus_message, peer_addr)
 
     return "Running consensus on index {}".format(index)
@@ -609,6 +630,9 @@ def handle_consensus_event(msg):
     global message_queue
     global words_db
     global peers
+    global event_global_timeout
+
+    print("[DEBUG] ======== HANDLE CONSENSUS EVENT ========")
 
     _message_id = msg["messageID"]
     _index = msg["index"]
@@ -626,19 +650,29 @@ def handle_consensus_event(msg):
         if _message_id != _reply_to:
             print("[DEBUG] ======== CONSENSUS COMPLETE: Replying to {} ========".format(
                 _reply_addr))
-            words_db[_index] = most_frequent(_response)
+
+            response_value = _value if not _response else most_frequent(
+                _response)
+
+            words_db[_index] = response_value
             consensus_reply = {
                 "command": CMD_CONSENSUS_REPLY_,
-                "value": most_frequent(_response),
-                "reply-to": _message_id
+                "value": response_value,
+                "reply-to": _reply_to
             }
+            print(consensus_reply)
             consensus_reply = json.dumps(consensus_reply).encode('utf-8')
             udp_socket.sendto(consensus_reply, _reply_addr)
         else:
             print("[DEBUG] ======== CONSENSUS COMPLETE: Set our DB ========")
-            words_db[_index] = most_frequent(_response)
+            words_db[_index] = _value if not _response else most_frequent(
+                _response)
 
         message_queue.remove(msg)
+        # Reset the event global timeout, this one is finished
+        event_global_timeout = sys.maxsize
+    else:
+        event_global_timeout = min(event_global_timeout, _due - current_time)
     pass
 
 
@@ -689,20 +723,30 @@ last_drop_inactive_nodes = time.time()
 
 try:
     while True:
-        # Need to calculate the timeout in someway...
-        # This requirement is pretty BS...
+        # handle message queue
+        for event in message_queue:
+            handle_consensus_event(event)
+
         join_network_timeout_sec = 60 - (time.time() - last_flood_msg)
         join_network_timeout_sec = 0 if join_network_timeout_sec < 0 else join_network_timeout_sec
 
         drop_nodes_timeout_sec = 120 - (time.time() - last_drop_inactive_nodes)
         drop_nodes_timeout_sec = 0 if drop_nodes_timeout_sec < 0 else drop_nodes_timeout_sec
 
-        timeout_sec = join_network_timeout_sec if join_network_timeout_sec < drop_nodes_timeout_sec else drop_nodes_timeout_sec
+        """
+        We maintain and track THREE timeouts:
+        1. Global event time (inside the message queue) - the minimum due time from all events
+        2. Timeout for re-joining the network (FLOOD to silicon) - every 1 minutes
+        3. Timeout for dropping all inactive nodes - every 2 minutes
+        
+        Find the minimum timeout from the three trackers
+        """
+        timeout_sec = min(join_network_timeout_sec,
+                          drop_nodes_timeout_sec, event_global_timeout)
 
         readable, writable, exceptional = select.select(
-            inputs, outputs, inputs, join_network_timeout_sec)
+            inputs, outputs, inputs, timeout_sec)
 
-        #
         # if timeout_sec <= 0 then it's time to join the network again
         if(time.time() - last_flood_msg > 60):
             join_network(udp_socket)
@@ -712,11 +756,6 @@ try:
         if(time.time() - last_drop_inactive_nodes > 120):
             drop_inactive_nodes()
             last_drop_inactive_nodes = time.time()
-
-        # handle message queue
-        for event in message_queue:
-            handle_consensus_event(event)
-            pass
 
         # Read what we can, from where we can
         for source in readable:
@@ -731,9 +770,6 @@ try:
                     if command and command in handle_commands:
                         cmd_func = handle_commands[command]
                         cmd_func(udp_socket, res_msg, addr)
-
-                    # if command == 'FLOOD' or command == 'FLOOD-REPLY':
-                    #     print("Sender: ", addr)
 
                 except:
                     pass
