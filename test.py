@@ -1,3 +1,5 @@
+#!/usr/bin/python3
+
 import sys
 import select
 import json
@@ -28,28 +30,43 @@ peer2_test = {
 
 peers = [peer1, peer2]
 
-exst_peer = [peer for peer in peers if '1.1.1.2' ==
-             peer['host'] and 8000 == peer['port']]
-print(exst_peer)
-exst_peer = exst_peer.pop()
-exst_peer['name'] = "yada yada yada"
-print(exst_peer)
 
-# print(peer1)
-# print(json.dumps(peers).encode('utf-8'))
+def test():
+    global peers
+    exst_peer = [peer for peer in peers if '1.1.1.2' ==
+                 peer['host'] and 8000 == peer['port']]
+    exst_peer = exst_peer[0]
+    exst_peer['name'] = "yada yada yada"
 
-# print(time.time())
 
-# How to get time difference
-# last_seen = 1627755420.5782158
-# time_now = time.time()
-# diff = time_now - last_seen
-# print("Last seen: ", time.ctime(last_seen))
-# print("Now      : ", time.ctime())
+def parse_peers_addr(list):
+    res = []
+    for p in list:
+        addr = p.split(':')
+        res.append((addr[0], addr[1]))
 
-# print(diff)
-# print(time.ctime(diff))
+    return res
 
-# curr_time = time.localtime()
-# print(curr_time)
-# print(time.localtime(time.time()))
+
+def most_frequent(d):
+    result = ''
+    max_count = 0
+
+    for word in d:
+        count = d.get(word)
+        if count >= max_count:
+            result = word
+            max_count = count
+
+    return result
+
+
+if len(sys.argv) == 2:
+    # use port from arguments
+    try:
+        udp_port = int(sys.argv[1])
+    except:
+        print("[ERROR] <optional_port> should be a number")
+    sys.exit()
+
+print(sys.argv)

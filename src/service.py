@@ -1,12 +1,11 @@
+#!/usr/bin/python3
+
 """
 
 TODO:
 
-1. Handle CLI requests from cli.py (50% complete, implement UI + multi-client)
-
 (This part ordered from easy to the most difficult)
-4. Implement SET
-5. Implement FLOOD
+5. Implement Consensus
 
 """
 
@@ -20,6 +19,8 @@ import random
 import uuid
 import re
 from zeroconf import IPVersion, ServiceInfo, Zeroconf, ServiceBrowser
+
+NODE_NAME = "E's peer"
 
 A3_NETWORK_HOST = 'silicon.cs.umanitoba.ca'
 A3_NETWORK_PORT = 16000
@@ -44,16 +45,33 @@ CLI_EXIT_ = 'exit'
 EVENT_CONSENSUS = 'CONSENSUS'
 EVENT_SUB_CONSENSUS = 'SUB_CONSENSUS'
 
+CONSENSUS_TIMEOUT_DUE = 2
+
 tell_truth = True
+
+if (len(sys.argv) > 2):
+    print("[ERROR] usage: ./service.py <optional_port>")
+    sys.exit()
 
 # ================== UDP Socket for A3 peer-to-peer network ==================
 udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 udp_socket.setblocking(False)
 
 udp_hostname = socket.gethostname()
+# for debugging
+udp_hostname = '127.0.0.1'
 
 # This accepts a tuple...
 udp_port = 0  # next available
+
+if len(sys.argv) == 2:
+    # use port from arguments
+    try:
+        udp_port = int(sys.argv[1])
+    except:
+        print("[ERROR] <optional_port> should be a number")
+        sys.exit()
+
 udp_socket.bind((udp_hostname, udp_port))
 
 ip_addr = udp_socket.getsockname()[0]
@@ -85,7 +103,7 @@ print("[TCP] Listening on interface " + tcp_hostname +
 peers = []
 message_queue = []
 flood_messages = []
-words_db = []
+words_db = [''] * 5
 
 
 def is_node_inactive(node):
@@ -103,7 +121,7 @@ def join_network(udp_socket):
         "command": CMD_FLOOD_,
         "host": NODE_HOST,
         "port": NODE_PORT,
-        "name": "Test's peer on {}".format(socket.gethostname()),
+        "name": "{} on: {}".format(NODE_NAME, socket.gethostname()),
         "messageID": str(uuid.uuid4())
     }
 
@@ -114,7 +132,33 @@ def join_network(udp_socket):
     pass
 
 
+def parse_peers_addr(list):
+    res = []
+    for p in list:
+        addr = p.split(':')
+        res.append((addr[0], int(addr[1])))
+
+    return res
+
+
+def most_frequent(d):
+    result = ''
+    max_count = 0
+
+    for word in d:
+        count = d.get(word)
+        if count >= max_count:
+            result = word
+            max_count = count
+
+    return result
+
+
 def cmd_flood(udp_socket, message, addr):
+    # global peers
+    # global message_queue
+    # global flood_messages
+
     msg_name = message['name']
     msg_host = message['host']
     msg_port = message['port']
@@ -136,24 +180,26 @@ def cmd_flood(udp_socket, message, addr):
 
     last_active = time.time()
 
-    existing_peer = [peer['host'] == msg_host and peer['port'] == msg_port
-                     for peer in peers]
+    print(message)
 
     # check if this is a new peer or not
     # if not then set the last active
-    if not any(existing_peer):
+    if not any([peer['host'] == msg_host and peer['port'] == msg_port
+                for peer in peers]):
+        print("[DEBUG] ===== FLOOD: NEW PEER =====")
         new_peer = {
             'name': msg_name,
             'host': msg_host,
             'port': msg_port,
-            'database': [],
+            'database': [''] * 5,
             'last_active': last_active
         }
 
         peers.append(new_peer)
     else:
-        existing_peer = existing_peer[0]
-        existing_peer['last_active'] = time.time()
+        for peer in peers:
+            if peer['host'] == msg_host and peer['port'] == msg_port:
+                peer['last_active'] = time.time()
 
     new_flood_msg = {
         'message_id': msg_message_id,
@@ -170,7 +216,7 @@ def cmd_flood(udp_socket, message, addr):
         "command": CMD_FLOOD_REPLY_,
         "host": NODE_HOST,
         "port": NODE_PORT,
-        "name": "Test's peer on {}".format(socket.gethostname())
+        "name": "{} on: {}".format(NODE_NAME, socket.gethostname())
     }
 
     reply_message = json.dumps(reply_message).encode('utf-8')
@@ -188,6 +234,7 @@ def cmd_flood(udp_socket, message, addr):
 
 
 def cmd_flood_reply(udp_socket, message, addr):
+    # global peers
     print(message)
 
     # The purpose for FLOOD-REPLY is to add all the peers in the network
@@ -200,7 +247,7 @@ def cmd_flood_reply(udp_socket, message, addr):
             'name': name_,
             'host': host_,
             'port': port_,
-            'database': [],
+            'database': [''] * 5,
             'last_active': time.time()
         }
 
@@ -210,15 +257,18 @@ def cmd_flood_reply(udp_socket, message, addr):
                 not any((host_, port_) == (
                     peer['host'], peer['port']) for peer in peers)
             ):
+            print("[DEBUG] ===== FLOOD-REPLY: NEW PEER =====")
             peers.append(peer)
-            print(peers)
+            # print(peers)
     pass
 
 
 def cmd_consensus(udp_socket, message, addr):
     # print("===== CONSENSUS =====")
-    # print(message)
-    _DEBUG = 1
+    global peers
+    global message_queue
+    global words_db
+    _DEBUG = 0
 
     _om = message['OM']
     _index = message['index']
@@ -242,7 +292,20 @@ def cmd_consensus(udp_socket, message, addr):
         udp_socket.sendto(consensus_reply, addr)
         return None
 
+    # if we are lying, then lie all the time
+    if not tell_truth:
+        consensus_reply = {
+            "command": CMD_CONSENSUS_REPLY_,
+            "value": 'LIE',
+            "reply-to": _message_id
+        }
+        consensus_reply = json.dumps(consensus_reply).encode('utf-8')
+        udp_socket.sendto(consensus_reply, addr)
+        return None
+
     if _om == 0:
+        print("[DEBUG] ========== OM: 0 ==========")
+        print(message, addr)
         consensus_reply = {
             "command": CMD_CONSENSUS_REPLY_,
             "value": words_db[_index],
@@ -251,14 +314,15 @@ def cmd_consensus(udp_socket, message, addr):
         consensus_reply = json.dumps(consensus_reply).encode('utf-8')
         udp_socket.sendto(consensus_reply, addr)
     elif _om > 0:
-        sub_consensus_id = uuid.uuid4()
-        sub_consensus_due = _due - 60
+        print("[DEBUG] ========== OM > 0 ==========")
+        print(message, addr)
+        print("DUE in secs: {}".format(_due - time.time()))
 
-        for peer in peers:
-            pass
+        sub_consensus_id = str(uuid.uuid4())
+        sub_consensus_due = _due/CONSENSUS_TIMEOUT_DUE
 
-        sub_consensus = {
-            "command": CMD_CONSENSUS_REPLY_,
+        sub_consensus_msg = {
+            "command": CMD_CONSENSUS_,
             "om": _om - 1,
             "index": _index,
             "value": _value,
@@ -267,36 +331,66 @@ def cmd_consensus(udp_socket, message, addr):
             "due": sub_consensus_due
         }
 
+        sub_consensus_msg = json.dumps(sub_consensus_msg).encode('utf-8')
+
         consensus_event = {
             "event": EVENT_SUB_CONSENSUS,
             "messageID": sub_consensus_id,
+            "index": _index,
+            "value": _value,
             "reply_to": _message_id,
+            "reply_addr": addr,
             "due": sub_consensus_due,
-            "sub_response": [],  # value returned from each peer
-            "expected_responses": len(_peers) - 1
+            "response": dict(),  # value returned from each peer
+            "expected_responses": len(_peers) - 2
         }
 
         message_queue.append(consensus_event)
 
-        pass
+        # send the message to n-2 peers, everyone except the sender and yourself
+        for peer_addr in parse_peers_addr(_peers):
+            if peer_addr != NODE_ADDR and peer_addr != addr:
+                print(
+                    "[DEBUG - CMD] ========== sending SUB-CONSENSUS to: {} =====".format(peer_addr))
+                udp_socket.sendto(sub_consensus_msg, peer_addr)
 
     pass
 
 
 def cmd_consensus_reply(udp_socket, message, addr):
-    _value = message['value']
-    _reply_to = message['reply-to']
+    global peers
+    global message_queue
 
-    sender = "{}:{}".format(addr[0], str(addr[1]))
+    _value = str(message['value'])
+    _message_id = message['reply-to']
 
-    if not (_value and _reply_to):
+    if not (_value and _message_id):
         # ignore the consensus command
         return None
 
+    consensus = [m for m in message_queue if m['messageID'] == _message_id]
+
+    if not any(consensus):
+        return None
+
+    consensus = consensus.pop()
+
+    words_dict = consensus['response']
+    if _value in words_dict:
+        words_dict[_value] += 1
+    else:
+        words_dict[_value] = 1
+
+    consensus['expected_responses'] = consensus['expected_responses'] - 1
+
+    print("[DEBUG] - CONSENSUS-REPLY")
+    print(consensus, addr)
     pass
 
 
 def cmd_query(udp_socket, message, addr):
+    print(message)
+    global words_db
     query_message = {
         "command": CMD_QUERY_
     }
@@ -307,6 +401,7 @@ def cmd_query(udp_socket, message, addr):
 
 def cmd_handle_query(udp_socket, message, addr):
     print(message)
+    global words_db
     query_message = {
         "command": CMD_QUERY_REPLY_,
         "database": words_db
@@ -319,27 +414,45 @@ def cmd_handle_query(udp_socket, message, addr):
 def cmd_query_reply(udp_socket, message, addr):
     global words_db
 
-    result = res_msg['database']
+    result = message['database']
 
     if result:
         words_db = result
-        # print(words_db)
-        # print("===== QUERY-REPLY =====")
-        # print(words_db)
     pass
+
+# def set_peer_word(word, index, addr):
 
 
 def cmd_set(udp_socket, message, addr):
-    # print("===== SET =====")
-    # print(message)
+    global peers
+
+    index = int(message['index'])
+    value = message['value']
+
+    # if not value:
+    #     return None
+
+    if index < 0 and index >= 5:
+        return None
+
+    print(message, addr)
+    words_db[index] = value
+
+    for peer in peers:
+        if peer['host'] == addr[0] and peer['port'] == addr[1]:
+            peer['database'][index] = value
+            break
+
     pass
 
 # CLI functions
 
 
 def cli_peers(message):
-    print(message)
+    global peers
     response = 'Current time: {}\r\n'.format(time.ctime())
+
+    print(peers)
 
     for peer in peers:
         peer_txt = '{} | {}:{} | {} | {}'.format(
@@ -360,9 +473,68 @@ def cli_current(message):
 
 
 def cli_consensus(message):
+    global message_queue
+    global peers
+
     print(message)
 
-    return "[NODE_REPLY] consensus"
+    if(len(message) != 2):
+        return 'CONSENSUS usage: consensus <index>'
+
+    index = message[1]
+
+    if not index:
+        return None
+
+    try:
+        index = int(index)
+    except:
+        return 'Invalid index for consensus command'
+
+    if int(index) < 0 or int(index) >= 5:
+        return 'Invalid index for consensus command'
+
+    om_level = int(len(peers) * (1/3))
+    peer_list = ["{}:{}".format(peer['host'], peer['port']) for peer in peers]
+    peer_list.append("{}:{}".format(NODE_HOST, NODE_PORT))
+
+    consensus_id = str(uuid.uuid4())
+    consensus_due = time.time() + CONSENSUS_TIMEOUT_DUE*15
+
+    consensus_message = {
+        "command": CMD_CONSENSUS_REPLY_,
+        "om": om_level,
+        "index": index,
+        "value": words_db[index],
+        "peers": peer_list,
+        "messageID": consensus_id,
+        "due": consensus_due
+    }
+
+    consensus_message = json.dumps(consensus_message).encode('utf-8')
+
+    # own consensus have the same message id
+    consensus_event = {
+        "event": EVENT_SUB_CONSENSUS,
+        "messageID": consensus_id,
+        "index": index,
+        "value": words_db[index],
+        "reply_to": consensus_id,
+        "reply_addr": NODE_ADDR,
+        "due": consensus_due,
+        "response": dict(),  # value returned from each peer
+        "expected_responses": len(peer_list) - 1
+    }
+
+    message_queue.append(consensus_event)
+
+    for peer_addr in parse_peers_addr(peer_list):
+        if peer_addr != NODE_ADDR:
+            print(
+                "[DEBUG - CLI] ========== sending SUB-CONSENSUS to: {} =====".format(peer_addr))
+            udp_socket.sendto(consensus_message, peer_addr)
+
+    return "Running consensus on index {}".format(index)
 
 
 def cli_lie(message):
@@ -383,12 +555,24 @@ def cli_set(message):
     if(len(message) != 3):
         return 'SET usage: set <index> <word>'
 
+    index = message[1]
+    word = message[2]
+
     if int(message[1]) < 0 or int(message[1]) >= len(words_db):
         return 'Invalid index for set command'
 
     words_db[int(message[1])] = message[2]
 
-    # TODO send SET protocol to all known peers
+    set_message = {
+        "command": CMD_SET_,
+        "index": index,
+        "value": word,
+    }
+
+    set_message = json.dumps(set_message).encode('utf-8')
+    for peer in peers:
+        udp_socket.sendto(set_message, (peer['host'], peer['port']))
+
     return "Done. Set index {} to {}".format(message[1], message[2])
 
 
@@ -421,6 +605,43 @@ def drop_inactive_nodes():
     pass
 
 
+def handle_consensus_event(msg):
+    global message_queue
+    global words_db
+    global peers
+
+    _message_id = msg["messageID"]
+    _index = msg["index"]
+    _value = msg["value"]
+    _reply_to = msg["reply_to"]
+    _reply_addr = msg["reply_addr"]
+    _due = msg["due"]
+    _response = msg["response"]
+    _expected_responses = msg["expected_responses"]
+
+    current_time = time.time()
+
+    if current_time >= _due or _expected_responses == 0:
+        # Over the due date: either reply or set our value
+        if _message_id != _reply_to:
+            print("[DEBUG] ======== CONSENSUS COMPLETE: Replying to {} ========".format(
+                _reply_addr))
+            words_db[_index] = most_frequent(_response)
+            consensus_reply = {
+                "command": CMD_CONSENSUS_REPLY_,
+                "value": most_frequent(_response),
+                "reply-to": _message_id
+            }
+            consensus_reply = json.dumps(consensus_reply).encode('utf-8')
+            udp_socket.sendto(consensus_reply, _reply_addr)
+        else:
+            print("[DEBUG] ======== CONSENSUS COMPLETE: Set our DB ========")
+            words_db[_index] = most_frequent(_response)
+
+        message_queue.remove(msg)
+    pass
+
+
 handle_commands = dict()
 handle_commands[CMD_FLOOD_] = cmd_flood
 handle_commands[CMD_FLOOD_REPLY_] = cmd_flood_reply
@@ -433,7 +654,7 @@ handle_commands[CMD_SET_] = cmd_set
 handle_cli_commands = dict()
 handle_cli_commands[CLI_PEERS_] = cli_peers
 handle_cli_commands[CLI_CURRENT_] = cli_current
-handle_cli_commands[CLI_CONSENSUS_] = cli_current
+handle_cli_commands[CLI_CONSENSUS_] = cli_consensus
 handle_cli_commands[CLI_LIE_] = cli_lie
 handle_cli_commands[CLI_TRUTH_] = cli_truth
 handle_cli_commands[CLI_SET_] = cli_set
@@ -445,7 +666,7 @@ desc = {}
 
 info = ServiceInfo(
     '_magicdice._udp.local.',
-    "Test's peer._magicdice._udp.local.",
+    "{}._magicdice._udp.local.".format(NODE_NAME),
     addresses=[socket.inet_aton(socket.gethostbyname(socket.gethostname()))],
     port=external_port,
     properties={},
@@ -460,8 +681,8 @@ inputs = [udp_socket, tcp_socket]
 outputs = []  # None
 
 # join the network and query the database from silicon
-join_network(udp_socket)
-cmd_query(udp_socket, '', A3_ADDR)
+# join_network(udp_socket)
+# cmd_query(udp_socket, '', A3_ADDR)
 
 last_flood_msg = time.time()
 last_drop_inactive_nodes = time.time()
@@ -487,13 +708,14 @@ try:
             join_network(udp_socket)
             last_flood_msg = time.time()
 
-        # if timeout_sec <= 0 then it's time to join the network again
+        # drop the inactive nodes
         if(time.time() - last_drop_inactive_nodes > 120):
             drop_inactive_nodes()
             last_drop_inactive_nodes = time.time()
 
         # handle message queue
-        for message in message_queue:
+        for event in message_queue:
+            handle_consensus_event(event)
             pass
 
         # Read what we can, from where we can
@@ -549,7 +771,6 @@ try:
                         source.sendall(
                             ("Command not recognized\r\n").encode('utf-8'))
 
-                # print(cli_response)
                 pass
 
 except KeyboardInterrupt:

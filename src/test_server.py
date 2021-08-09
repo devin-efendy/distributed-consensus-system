@@ -162,7 +162,7 @@ class TestAPI(unittest.TestCase):
         }
         msg = json.dumps(obj).encode()
         self.sock.sendto(msg, SERVER)
-        
+
         # wait... just a bit
         time.sleep(0.1)
 
@@ -206,50 +206,50 @@ class TestAPI(unittest.TestCase):
             g.close()
 
 
-    def test_consensus_no_reply(self):
-        '''
-        Test that a consensus that has no repliers will
-        still send a reply
-        '''
+    # def test_consensus_no_reply(self):
+    #     '''
+    #     Test that a consensus that has no repliers will
+    #     still send a reply
+    #     '''
 
-        oldWord = "somethning"
-        newWord = "differnt"
+    #     oldWord = "somethning"
+    #     newWord = "differnt"
 
-        # set 
-        obj = { 'command': 'SET', 'index': 0, 'value': oldWord}
-        msg = json.dumps(obj).encode()
-        self.sock.sendto(msg, SERVER)
+    #     # set 
+    #     obj = { 'command': 'SET', 'index': 0, 'value': oldWord}
+    #     msg = json.dumps(obj).encode()
+    #     self.sock.sendto(msg, SERVER)
 
        
-        # send the command
-        msgID = str(uuid.uuid4())
-        obj = {
-            "command": "CONSENSUS",
-            "OM": 1,
-            "peers": [
-                '127.0.0.1:55555',
-                '127.0.0.1:55556',
-                '127.0.0.1:55557',
-                '127.0.0.1:16000'],  # the test machine
-            "messageID": msgID,
-            "index": 0,
-            "value": oldWord,
-            "due": time.time() + 0.5
-        }
-        msg = json.dumps(obj).encode()
-        self.sock.sendto(msg, SERVER)
+    #     # send the command
+    #     msgID = str(uuid.uuid4())
+    #     obj = {
+    #         "command": "CONSENSUS",
+    #         "OM": 1,
+    #         "peers": [
+    #             '127.0.0.1:55555',
+    #             '127.0.0.1:55556',
+    #             '127.0.0.1:55557',
+    #             '127.0.0.1:16000'],  # the test machine
+    #         "messageID": msgID,
+    #         "index": 0,
+    #         "value": oldWord,
+    #         "due": time.time() + 0.5
+    #     }
+    #     msg = json.dumps(obj).encode()
+    #     self.sock.sendto(msg, SERVER)
         
-        # wait... just a bit more than the due date
-        time.sleep(0.6)
+    #     # wait... just a bit more than the due date
+    #     time.sleep(0.6)
 
-        data, addr = data, addr = self.sock.recvfrom(1024)
-        obj = json.loads(data.decode('utf-8'))
+    #     data, addr = data, addr = self.sock.recvfrom(1024)
+    #     obj = json.loads(data.decode('utf-8'))
 
-        # got the right word back?
-        self.assertEqual(obj['command'], 'CONSENSUS-REPLY')
-        self.assertEqual(obj['value'], oldWord)
-        # with the right id?
-        self.assertEqual(obj['reply-to'], msgID)
+    #     # got the right word back?
+    #     self.assertEqual(obj['command'], 'CONSENSUS-REPLY')
+    #     self.assertEqual(obj['value'], oldWord)
+    #     # with the right id?
+    #     self.assertEqual(obj['reply-to'], msgID)
 
 
 
