@@ -162,7 +162,7 @@ class TestAPI(unittest.TestCase):
         }
         msg = json.dumps(obj).encode()
         self.sock.sendto(msg, SERVER)
-
+        
         # wait... just a bit
         time.sleep(0.1)
 

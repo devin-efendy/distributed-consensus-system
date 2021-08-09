@@ -61,12 +61,7 @@ def most_frequent(d):
     return result
 
 
-if len(sys.argv) == 2:
-    # use port from arguments
-    try:
-        udp_port = int(sys.argv[1])
-    except:
-        print("[ERROR] <optional_port> should be a number")
-    sys.exit()
+s = "123:456"
 
-print(sys.argv)
+print(s.split(":"))
+print(s)
