@@ -27,7 +27,7 @@ $ ./cli.py hawk.cs.umanitoba.ca 8023
 
 # To run the provided unit test : `test_server.py`
 
-Change the `USE_LOCALHOST` variable in `service.py` to `True`
+Change the `USE_LOCALHOST` variable in `service.py` (line 41) to `True`
 
 Then run the following command:
 

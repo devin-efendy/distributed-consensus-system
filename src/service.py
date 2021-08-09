@@ -38,7 +38,7 @@ EVENT_SUB_CONSENSUS = 'SUB_CONSENSUS'
 
 CONSENSUS_TIMEOUT_DUE = 2
 
-USE_LOCALHOST = True
+USE_LOCALHOST = False
 
 tell_truth = True
 
@@ -114,6 +114,9 @@ def join_network(udp_socket):
     use udp_socket.sendto(message, address) to send the first FLOOD message
     Then, join the networks
     """
+
+    global peers
+
     flood_message = json.dumps({
         "command": CMD_FLOOD_,
         "host": NODE_HOST,
@@ -122,7 +125,8 @@ def join_network(udp_socket):
         "messageID": str(uuid.uuid4())
     }).encode('utf-8')
 
-    if not peers:
+    if len(peers) == 0:
+        print(flood_message, A3_ADDR)
         udp_socket.sendto(flood_message, A3_ADDR)
     else:
         for p in peers:
@@ -177,6 +181,8 @@ def cmd_flood(udp_socket, message, addr):
     # New node in the network, add it into our peer list
 
     last_active = time.time()
+
+    print(message)
 
     # check if this is a new peer or not
     # if not then set the last active
@@ -244,9 +250,9 @@ def cmd_flood_reply(udp_socket, message, addr):
         # Check if the address is not yourself (malicious messages from other peers, yes I have trust issues)
         # Check if you REALLY never see this peer at all
         if (NODE_ADDR != (host_, port_) and
-                not any((host_, port_) == (
-                    peer['host'], peer['port']) for peer in peers)
-            ):
+                    not any((host_, port_) == (
+                        peer['host'], peer['port']) for peer in peers)
+                ):
             print("[DEBUG] ===== FLOOD-REPLY: NEW PEER =====")
             peers.append(peer)
     pass
@@ -613,7 +619,7 @@ def handle_consensus_event(msg):
     global peers
     global event_global_timeout
 
-    print("[DEBUG] ======== HANDLE CONSENSUS EVENT ========")
+    # print("[DEBUG] ======== HANDLE CONSENSUS EVENT ========")
 
     _message_id = msg["messageID"]
     _index = msg["index"]
