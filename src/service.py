@@ -1,14 +1,5 @@
 #!/usr/bin/python3
 
-"""
-
-TODO:
-
-(This part ordered from easy to the most difficult)
-5. Implement Consensus
-
-"""
-
 from os import write
 import sys
 import select
@@ -47,11 +38,23 @@ EVENT_SUB_CONSENSUS = 'SUB_CONSENSUS'
 
 CONSENSUS_TIMEOUT_DUE = 2
 
+USE_LOCALHOST = True
+
 tell_truth = True
 
 if (len(sys.argv) > 2):
     print("[ERROR] usage: ./service.py <optional_port>")
     sys.exit()
+
+argv_udp_port = 0  # next available
+
+if len(sys.argv) == 2:
+    # use port from arguments
+    try:
+        argv_udp_port = int(sys.argv[1])
+    except:
+        print("[ERROR] <optional_port> should be a number")
+        sys.exit()
 
 # ================== UDP Socket for A3 peer-to-peer network ==================
 udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -59,19 +62,11 @@ udp_socket.setblocking(False)
 
 udp_hostname = socket.gethostname()
 # for debugging
-udp_hostname = '127.0.0.1'
+# if USE_LOCALHOST:
+#     udp_hostname = '127.0.0.1'
 
 # This accepts a tuple...
-udp_port = 0  # next available
-
-if len(sys.argv) == 2:
-    # use port from arguments
-    try:
-        udp_port = int(sys.argv[1])
-    except:
-        print("[ERROR] <optional_port> should be a number")
-        sys.exit()
-
+udp_port = argv_udp_port
 udp_socket.bind((udp_hostname, udp_port))
 
 ip_addr = udp_socket.getsockname()[0]
@@ -81,8 +76,8 @@ print("[UDP] Listening on interface " + udp_hostname +
       " port " + str(external_port) + " aka " + ip_addr)
 
 NODE_HOST = socket.gethostbyname(socket.gethostname())
-if len(sys.argv) == 2:
-    NODE_HOST = '127.0.0.1'
+# if USE_LOCALHOST:
+#     NODE_HOST = '127.0.0.1'
 NODE_PORT = external_port
 NODE_ADDR = (NODE_HOST, NODE_PORT)
 
@@ -257,8 +252,8 @@ def cmd_flood_reply(udp_socket, message, addr):
         # Check if the address is not yourself (malicious messages from other peers, yes I have trust issues)
         # Check if you REALLY never see this peer at all
         if (NODE_ADDR != (host_, port_) and
-                    not any((host_, port_) == (
-                        peer['host'], peer['port']) for peer in peers)
+                not any((host_, port_) == (
+                    peer['host'], peer['port']) for peer in peers)
                 ):
             print("[DEBUG] ===== FLOOD-REPLY: NEW PEER =====")
             peers.append(peer)
@@ -660,7 +655,6 @@ def handle_consensus_event(msg):
                 "value": response_value,
                 "reply-to": _reply_to
             }
-            print(consensus_reply)
             consensus_reply = json.dumps(consensus_reply).encode('utf-8')
             udp_socket.sendto(consensus_reply, _reply_addr)
         else:
@@ -714,9 +708,10 @@ zeroconf.register_service(info)
 inputs = [udp_socket, tcp_socket]
 outputs = []  # None
 
-# join the network and query the database from silicon
-# join_network(udp_socket)
-# cmd_query(udp_socket, '', A3_ADDR)
+if not USE_LOCALHOST:
+    # join the network and query the database from silicon
+    join_network(udp_socket)
+    cmd_query(udp_socket, '', A3_ADDR)
 
 last_flood_msg = time.time()
 last_drop_inactive_nodes = time.time()
