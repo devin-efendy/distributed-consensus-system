@@ -12,6 +12,7 @@ SERVER = ('127.0.0.1', 16000)
 
 ARRAY_SIZE = 5
 
+
 class TestAPI(unittest.TestCase):
 
     def setUp(self):
@@ -22,19 +23,17 @@ class TestAPI(unittest.TestCase):
         self.sock.bind((socket.gethostname(), 0))
         self.sock.settimeout(1)
 
-
     def test_flood(self):
         sock2 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock2.bind((socket.gethostname(), 0))
         sock2.settimeout(1)
 
-        
         # log in the first
         obj = {'command': 'FLOOD',
-            'host': self.sock.getsockname()[0],
-            'port': self.sock.getsockname()[1],
-            'name': "1",
-            'messageID': str(uuid.uuid4())}
+               'host': self.sock.getsockname()[0],
+               'port': self.sock.getsockname()[1],
+               'name': "1",
+               'messageID': str(uuid.uuid4())}
         msg = json.dumps(obj).encode()
         self.sock.sendto(msg, SERVER)
         # listen for a result
@@ -52,10 +51,10 @@ class TestAPI(unittest.TestCase):
         # log in the first
         msgID = str(uuid.uuid4())
         obj = {'command': 'FLOOD',
-            'host': sock2.getsockname()[0],
-            'port': sock2.getsockname()[1],
-            'name': "2",
-            'messageID': msgID}
+               'host': sock2.getsockname()[0],
+               'port': sock2.getsockname()[1],
+               'name': "2",
+               'messageID': msgID}
         msg = json.dumps(obj).encode()
         sock2.sendto(msg, SERVER)
 
@@ -95,24 +94,24 @@ class TestAPI(unittest.TestCase):
                 # No more messages
                 self.fail("Did not hear the flood forward")
                 break
-            
+
             resultObj = json.loads(data)
         self.assertEqual(resultObj['command'], 'FLOOD')
         self.assertTrue(found)
 
         sock2.close()
-    
+
     def test_set(self):
         # try setting the values for the client
         setTo = []
         for i in range(ARRAY_SIZE):
-            setTo.append(i*10)
-            obj = { 'command': 'SET', 'index': i, 'value': i*10 }
+            setTo.append(str(i*10))
+            obj = {'command': 'SET', 'index': i, 'value': str(i*10)}
             msg = json.dumps(obj).encode()
             self.sock.sendto(msg, SERVER)
 
         # ... are they set?
-        obj = { 'command': 'QUERY'}
+        obj = {'command': 'QUERY'}
         msg = json.dumps(obj).encode()
         self.sock.sendto(msg, SERVER)
         data, addr = self.sock.recvfrom(1024)
@@ -132,8 +131,8 @@ class TestAPI(unittest.TestCase):
         oldWord = "somethning"
         newWord = "differnt"
 
-        # set 
-        obj = { 'command': 'SET', 'index': 0, 'value': oldWord}
+        # set
+        obj = {'command': 'SET', 'index': 0, 'value': oldWord}
         msg = json.dumps(obj).encode()
         self.sock.sendto(msg, SERVER)
 
@@ -158,11 +157,11 @@ class TestAPI(unittest.TestCase):
             "messageID": msgID,
             "index": 0,
             "value": oldWord,
-            "due": time.time() + 1 # use an int to be a little more safe
+            "due": time.time() + 1  # use an int to be a little more safe
         }
         msg = json.dumps(obj).encode()
         self.sock.sendto(msg, SERVER)
-        
+
         # wait... just a bit
         time.sleep(0.1)
 
@@ -177,7 +176,7 @@ class TestAPI(unittest.TestCase):
             self.assertNotEqual(msgID, obj['messageID'])
             # the right command...
             self.assertEqual('CONSENSUS', obj['command'])
-            
+
             # We can just reply
             reply = {
                 "command": "CONSENSUS-REPLY",
@@ -186,7 +185,7 @@ class TestAPI(unittest.TestCase):
             }
             replyB = json.dumps(reply).encode()
             g.sendto(replyB, addr)
-        
+
         # main socket should have a reply now
         # wait... just a bit (but longer than the timeout)
         time.sleep(2)
@@ -205,7 +204,6 @@ class TestAPI(unittest.TestCase):
         for g in generals:
             g.close()
 
-
     def test_consensus_no_reply(self):
         '''
         Test that a consensus that has no repliers will
@@ -215,12 +213,11 @@ class TestAPI(unittest.TestCase):
         oldWord = "somethning"
         newWord = "differnt"
 
-        # set 
-        obj = { 'command': 'SET', 'index': 0, 'value': oldWord}
+        # set
+        obj = {'command': 'SET', 'index': 0, 'value': oldWord}
         msg = json.dumps(obj).encode()
         self.sock.sendto(msg, SERVER)
 
-       
         # send the command
         msgID = str(uuid.uuid4())
         obj = {
@@ -238,7 +235,7 @@ class TestAPI(unittest.TestCase):
         }
         msg = json.dumps(obj).encode()
         self.sock.sendto(msg, SERVER)
-        
+
         # wait... just a bit more than the due date
         time.sleep(0.6)
 
@@ -251,11 +248,10 @@ class TestAPI(unittest.TestCase):
         # with the right id?
         self.assertEqual(obj['reply-to'], msgID)
 
-
-
     def tearDown(self):
         self.sock.close()
-        obj = { 'command': 'QUERY'}
+        obj = {'command': 'QUERY'}
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

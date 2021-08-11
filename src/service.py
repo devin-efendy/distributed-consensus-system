@@ -349,6 +349,7 @@ def cmd_consensus(udp_socket, message, addr):
             "due": sub_consensus_due
         }).encode('utf-8')
 
+        # Message Queue object
         consensus_event = {
             "event": EVENT_SUB_CONSENSUS,
             "messageID": sub_consensus_id,
@@ -358,7 +359,7 @@ def cmd_consensus(udp_socket, message, addr):
             "reply_addr": addr,
             "due": sub_consensus_due,
             "response": dict(),  # value returned from each peer
-            "expected_responses": len(sub_consensus_peers) - 1
+            "expected_responses": len(sub_consensus_peers) - 1 # calculate how many response we need
         }
 
         message_queue.append(consensus_event)
@@ -439,7 +440,7 @@ def cmd_set(udp_socket, message, addr):
     global peers
 
     index = int(message['index'])
-    value = message['value']
+    value = str(message['value'])
 
     # if not value:
     #     return None
@@ -635,8 +636,8 @@ def handle_consensus_event(msg):
     if current_time >= _due or _expected_responses == 0:
         # Over the due date: either reply or set our value
         if _message_id != _reply_to:
-            print("[DEBUG] ======== CONSENSUS COMPLETE: Replying to {} ========".format(
-                _reply_addr))
+            # print("[DEBUG] ======== CONSENSUS COMPLETE: Replying to {} ========".format(
+            #     _reply_addr))
 
             response_value = _value if not _response else most_frequent(
                 _response)
@@ -650,7 +651,7 @@ def handle_consensus_event(msg):
             }).encode('utf-8')
             udp_socket.sendto(consensus_reply, _reply_addr)
         else:
-            print("[DEBUG] ======== CONSENSUS COMPLETE: Set our DB ========")
+            # print("[DEBUG] ======== CONSENSUS COMPLETE: Set our DB ========")
             words_db[_index] = _value if not _response else most_frequent(
                 _response)
 
