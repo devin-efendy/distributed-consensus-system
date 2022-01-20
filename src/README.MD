@@ -1,4 +1,4 @@
-# COMP3010 Assignment 3
+# Distributed Consensus System
 
 # How to run the program:
 
